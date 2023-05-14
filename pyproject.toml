@@ -1,0 +1,23 @@
+[tool.poetry]
+name = "collatz-viz"
+version = "0.1.0"
+description = ""
+authors = ["Your Name <you@example.com>"]
+readme = "README.md"
+packages = [{include = "collatz_viz"}]
+
+[tool.poetry.dependencies]
+python = ">=3.9,<3.12"
+pycairo = "^1.23.0"
+ipython = "^8.13.2"
+jupyter = "^1.0.0"
+manim = "^0.17.3"
+jupyterlab = "^3.6.3"
+
+
+[tool.poetry.group.dev.dependencies]
+flake8 = "^6.0.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

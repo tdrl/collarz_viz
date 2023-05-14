@@ -1,0 +1,4 @@
+- Javascript: D3
+- Elm + Elm viz library
+  https://package.elm-lang.org/packages/gampleman/elm-visualization/latest/
+- Python manim: https://github.com/3b1b/manim
