@@ -48,9 +48,9 @@ class NodeInfo:
     polar_final_angle: float = field(default=0.0, compare=False)
     polar_final_radius: float = field(default=0.0, compare=False)
     # The set of animations required to draw this node and its ancillary
-    # visualizations (text, trace, etc.) To render a node appearing and then moving
-    # into its final position, call CollatzViz.play_all(animation_list)
-    animation_list: List[mnm.Animation] = field(default_factory=list, compare=False)
+    # visualizations (text, trace, etc.) This can be a single animation or, to
+    # compose multiple animations, use mnm.Succession or mnm.AnimationGroup
+    animations: Optional[mnm.Animation] = field(default=None, compare=False)
 
 
 class PriorityNodeQueue(object):
@@ -161,9 +161,9 @@ class CollatzViz(mnm.MovingCameraScene):
                                                   stroke_width=self.trace_stroke_width,
                                                   stroke_color=self.trace_stroke_color,
                                                   z_index=-2)
-        child_node.animation_list.append(mnm.FadeIn(child_node.display_node,
-                                                    child_node.display_text,
-                                                    child_node.display_trace))
+        child_node.animations = mnm.FadeIn(child_node.display_node,
+                                           child_node.display_text,
+                                           child_node.display_trace)
         return child_node
 
     def generate_doubling_node(self, parent: NodeInfo) -> NodeInfo:
@@ -189,7 +189,7 @@ class CollatzViz(mnm.MovingCameraScene):
                              end=[here[0] + move_dist * np.cos(child_node.polar_final_angle),
                                   here[1] + move_dist * np.sin(child_node.polar_final_angle),
                                   0.0])
-        child_node.animation_list.append(mnm.MoveAlongPath(child_node.display_node, move_path))
+        child_node.animations = mnm.Succession(child_node.animations, mnm.MoveAlongPath(child_node.display_node, move_path))
         return child_node
 
     def generate_division_node(self, parent: NodeInfo) -> NodeInfo:
@@ -223,21 +223,14 @@ class CollatzViz(mnm.MovingCameraScene):
                                                   move_dist / 2 * np.sin(arc_final_angle),
                                                   0.0])
         second_segment = mnm.Line(start=here, end=there)
-        child_node.animation_list.append(mnm.MoveAlongPath(child_node.display_node, first_segment, run_time=1./3., rate_func=mnm.rate_functions.ease_in_sine))
-        child_node.animation_list.append(mnm.MoveAlongPath(child_node.display_node, arc_segment, run_time=1./3., rate_func=mnm.rate_functions.linear))
-        child_node.animation_list.append(mnm.MoveAlongPath(child_node.display_node, second_segment, run_time=1./3., rate_func=mnm.rate_functions.ease_out_sine))
+        path_anim = mnm.Succession(child_node.animations,
+                                   mnm.MoveAlongPath(child_node.display_node, first_segment),
+                                   mnm.MoveAlongPath(child_node.display_node, arc_segment),
+                                   mnm.MoveAlongPath(child_node.display_node, second_segment))
+        child_node.animations = path_anim
         child_node.polar_final_angle = arc_final_angle
         child_node.polar_final_radius = norm(second_segment.get_end())
         return child_node
-
-    def play_all(self, animations: List[mnm.Animation]):
-        """Play all animations sequentially.
-
-        Args:
-            animations (List[mnm.Animation]): Set of animations to run.
-        """
-        for a in animations:
-            self.play(a)
 
     def construct(self):
         """Main 'script' for the animation.
@@ -256,7 +249,7 @@ class CollatzViz(mnm.MovingCameraScene):
             display_trace=None,
             polar_final_angle=0.0,
             polar_final_radius=0.0,
-            animation_list=[mnm.FadeIn(root_circle, root_text)]
+            animations=mnm.FadeIn(root_circle, root_text),
         )
         open = PriorityNodeQueue([root_node])
         closed: List[NodeInfo] = []
@@ -264,7 +257,7 @@ class CollatzViz(mnm.MovingCameraScene):
         for _ in range(self.nodes_to_generate):
             curr_node = open.pop()
             # self.play(self.camera.frame.animate.set(width=self.step_size * next_node.value + 3))
-            self.play_all(curr_node.animation_list)
+            self.play(curr_node.animations)
             open.enqueue(self.generate_doubling_node(curr_node))
             if (curr_node.value == 2):
                 self.play(mnm.Create(mnm.ArcBetweenPoints(curr_node.display_node.get_center(),
