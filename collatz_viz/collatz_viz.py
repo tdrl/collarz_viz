@@ -15,9 +15,9 @@ To compile the visualization, use:
     manim -p -qm collatz_viz.py CollatzViz
 """
 
-import manim as mnm  # ignore: reportMissingStubTypes
+import manim as mnm
 from dataclasses import dataclass, field
-from typing import Optional, List, Iterable
+from typing import Optional, List, Iterable, Any, Dict
 import numpy as np
 from numpy.linalg import norm
 import heapq
@@ -26,7 +26,7 @@ import heapq
 @dataclass(order=True)
 class NodeInfo:
     """A container for all of the information we need to track about a single visual node.
-    
+
     This contains the "value" of the node (i.e., the int represented in the Collatz process)
     as well as a number of visual elements for display and metadata used for layout.
 
@@ -38,8 +38,6 @@ class NodeInfo:
     shell: int = field(compare=True)
     # The Collatz value of this node.
     value: int = field(compare=True)
-    # Color of the node.
-    color: mnm.color.Color = field(compare=False)
     # The displayable circle mobject representing this value.
     display_node: mnm.Circle = field(compare=False)
     # The displayable text attached to this node.
@@ -71,13 +69,13 @@ class PriorityNodeQueue(object):
 
 class CollatzViz(mnm.MovingCameraScene):
     """The main visualization.
-    
+
     This animates the growth of the reverse Collatz process as a tree, laid out with
     a circular layout style and exponentially decaying node sizes and arc lengths, so
     that we can fit it all in a bounded space.
     """
 
-    def __init__(self, nodes_to_generate: int = 100):
+    def __init__(self, nodes_to_generate: int = 8, **kwargs: Dict[str, Any]):
         """Configure Collatz process viz.
 
         Args:
@@ -85,7 +83,7 @@ class CollatzViz(mnm.MovingCameraScene):
                 Larger numbers makes bigger, more elaborate visualizations, but takes longer
                 to render. Defaults to 100.
         """
-        super().__init__()
+        super().__init__(**kwargs)
         self.nodes_to_generate = nodes_to_generate
         # Starting point of the visualization.
         self.origin = mnm.ORIGIN
@@ -115,9 +113,9 @@ class CollatzViz(mnm.MovingCameraScene):
         self.angular_decay = 0.75
         self.distance_decay = 0.93
 
-    def circle_factory(self, shell: int) -> mnm.Circle():
+    def circle_factory(self, shell: int) -> mnm.Circle:
         """Create a single node circle, with standard styling.
-        
+
         Generates a node laying on the 'shell'th circular radius from the origin.
         The node is sized and colored according to an exponential decay from the
         origin.
@@ -146,13 +144,12 @@ class CollatzViz(mnm.MovingCameraScene):
         Returns:
             NodeInfo: Styled node with ancillary structures (text, trace, etc.) and
                 initial animations for creating (but not moving) it. Node is initialized
-                at the location of its parent. 
+                at the location of its parent.
         """
         child_shell = parent.shell + 1
         child_node = NodeInfo(
             value=child_val,
             shell=child_shell,
-            color=parent.color,
             display_node=self.circle_factory(child_shell),
             display_text=mnm.Text(str(child_val))
         )
@@ -254,7 +251,6 @@ class CollatzViz(mnm.MovingCameraScene):
         root_node = NodeInfo(
             value=1,
             shell=0,
-            color=mnm.PURPLE,
             display_node=root_circle,
             display_text=root_text,
             display_trace=None,
