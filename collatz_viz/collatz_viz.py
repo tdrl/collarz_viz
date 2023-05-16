@@ -44,6 +44,8 @@ class NodeInfo:
     display_text: mnm.Text = field(compare=False)
     # A visual element that traces the path the node takes as we animate it.
     display_trace: Optional[mnm.TracedPath] = field(default=None, compare=False)
+    # A dot to animate on the number line.
+    display_dot: mnm.Dot = field(default_factory=mnm.Dot, compare=False)
     # The final placed location of the node, as measured in polar coordinates.
     polar_final_angle: float = field(default=0.0, compare=False)
     polar_final_radius: float = field(default=0.0, compare=False)
@@ -75,7 +77,7 @@ class CollatzViz(mnm.MovingCameraScene):
     that we can fit it all in a bounded space.
     """
 
-    def __init__(self, nodes_to_generate: int = 1, **kwargs: Dict[str, Any]):
+    def __init__(self, nodes_to_generate: int = 5, **kwargs: Dict[str, Any]):
         """Configure Collatz process viz.
 
         Args:
@@ -91,14 +93,18 @@ class CollatzViz(mnm.MovingCameraScene):
         self.circle_radius = 1.0
         # We use a color gradient of nodes. These are the start and end of the color
         # gradient.
-        self.circle_fill_color_start = mnm.PURPLE
+        self.circle_fill_color_start = mnm.DARK_BLUE
         self.circle_fill_color_end = mnm.RED
         # How opaque to color each node circle.
         self.circle_fill_opacity = 1.0
         # Color of node edge.
-        self.circle_stroke_color = mnm.DARK_BLUE
+        self.circle_stroke_color = mnm.PURPLE
         # Thickness of node edge.
         self.circle_stroke_width = 8
+        # How big of location dots to render on the number line.
+        self.dot_radius = 0.45
+        # Dot opacity.
+        self.dot_opacity = 0.7
         # Color of trace that we draw as we move nodes.
         self.trace_stroke_color = mnm.BLUE_A
         # Thickness of trace.
@@ -112,6 +118,20 @@ class CollatzViz(mnm.MovingCameraScene):
         self.circle_radius_decay = 0.95
         self.angular_decay = 0.75
         self.distance_decay = 0.93
+        self.number_line: mnm.NumberLine = self.number_line_factory()
+
+    def get_color_by_shell(self, shell: int) -> mnm.color.Color:
+        """Generate a color scaled by radial shell from the origin.
+
+        :param shell: The tree depth (i.e., shell) at which we're rendering.
+        :type shell: int
+        :return: Color for this shell, interpolated between start and end colors.
+        :rtype: mnm.color.Color
+        """
+        decay = np.power(self.circle_radius_decay, shell)
+        return mnm.utils.color.interpolate_color(self.circle_fill_color_start,
+                                                 self.circle_fill_color_end,
+                                                 1.0 - decay)
 
     def circle_factory(self, shell: int) -> mnm.Circle:
         """Create a single node circle, with standard styling.
@@ -128,11 +148,13 @@ class CollatzViz(mnm.MovingCameraScene):
         decay = np.power(self.circle_radius_decay, shell)
         c = mnm.Circle(radius=self.circle_radius * decay)
         c.set_stroke(color=self.circle_fill_color_start, width=self.circle_stroke_width * decay)
-        fill_color = mnm.utils.color.interpolate_color(self.circle_fill_color_start,
-                                                       self.circle_fill_color_end,
-                                                       1.0 - decay)
-        c.set_fill(color=fill_color, opacity=self.circle_fill_opacity)
+        c.set_fill(color=self.get_color_by_shell(shell=shell), opacity=self.circle_fill_opacity)
         return c
+
+    def dot_factory(self, shell: int) -> mnm.Dot:
+        return mnm.Dot(radius=self.dot_radius,
+                       fill_opacity=self.dot_opacity,
+                       color=self.get_color_by_shell(shell=shell))
 
     def node_factory(self, parent: NodeInfo, child_val: int) -> NodeInfo:
         """Factory to build renderable nodes & co, with standard styling.
@@ -151,7 +173,8 @@ class CollatzViz(mnm.MovingCameraScene):
             value=child_val,
             shell=child_shell,
             display_node=self.circle_factory(child_shell),
-            display_text=mnm.Text(str(child_val))
+            display_text=mnm.Text(str(child_val)),
+            display_dot=self.dot_factory(child_shell),
         )
         child_node.display_node.move_to(parent.display_node)
         child_node.display_text.match_style(parent.display_text)
@@ -161,9 +184,14 @@ class CollatzViz(mnm.MovingCameraScene):
                                                   stroke_width=self.trace_stroke_width,
                                                   stroke_color=self.trace_stroke_color,
                                                   z_index=-2)
+        print(f'Initial dot({child_val}) loc = {child_node.display_dot.get_center()}')
+        child_node.display_dot.move_to(self.number_line.number_to_point(parent.value) + mnm.OUT)
+        print(f'After locating on number line dot({child_val}) loc = {child_node.display_dot.get_center()})')
         child_node.animations = mnm.FadeIn(child_node.display_node,
                                            child_node.display_text,
-                                           child_node.display_trace)
+                                           child_node.display_trace,
+                                           child_node.display_dot)
+        print(f'After fade-in dot({child_val}) loc = {child_node.display_dot.get_center()}')
         return child_node
 
     def number_line_factory(self) -> mnm.NumberLine:
@@ -177,7 +205,7 @@ class CollatzViz(mnm.MovingCameraScene):
                                 font_size=64,
                                 # scaling=mnm.LogBase(base=2),
                                 line_to_number_buff=mnm.LARGE_BUFF)
-        result.move_to(mnm.DOWN * 5 * self.circle_radius - result.number_to_point(1))
+        result.move_to(mnm.DOWN * 5 * self.circle_radius - result.number_to_point(1) + mnm.IN)
         return result
 
     def generate_doubling_node(self, parent: NodeInfo) -> NodeInfo:
@@ -195,6 +223,7 @@ class CollatzViz(mnm.MovingCameraScene):
         """
         child_val = 2 * parent.value
         child_node = self.node_factory(parent=parent, child_val=child_val)
+        print(f'Doubling node({child_val}) dot init loc = {child_node.display_dot.get_center()}')
         move_dist = np.power(self.distance_decay, child_node.shell) * self.step_size
         child_node.polar_final_angle = parent.polar_final_angle
         child_node.polar_final_radius = parent.polar_final_radius + move_dist
@@ -203,7 +232,12 @@ class CollatzViz(mnm.MovingCameraScene):
                              end=[here[0] + move_dist * np.cos(child_node.polar_final_angle),
                                   here[1] + move_dist * np.sin(child_node.polar_final_angle),
                                   0.0])
-        child_node.animations = mnm.Succession(child_node.animations, mnm.MoveAlongPath(child_node.display_node, move_path))
+        print(f'Doubling node({child_val}) just before animations, dot loc = {child_node.display_dot.get_center()}')
+        dot_animation = child_node.display_dot.animate.move_to(self.number_line.number_to_point(child_node.value) + mnm.OUT)
+        child_node.animations = mnm.Succession(child_node.animations,
+                                               mnm.AnimationGroup(mnm.MoveAlongPath(child_node.display_node, move_path),
+                                                                  dot_animation))
+        print(f'Doubling node({child_val}) just after animations, dot loc = {child_node.display_dot.get_center()}')
         return child_node
 
     def generate_division_node(self, parent: NodeInfo) -> NodeInfo:
@@ -237,10 +271,12 @@ class CollatzViz(mnm.MovingCameraScene):
                                                   move_dist / 2 * np.sin(arc_final_angle),
                                                   0.0])
         second_segment = mnm.Line(start=here, end=there)
+        dot_animation = child_node.display_dot.animate.move_to(self.number_line.number_to_point(child_node.value) + mnm.OUT)
         path_anim = mnm.Succession(child_node.animations,
-                                   mnm.MoveAlongPath(child_node.display_node, first_segment),
-                                   mnm.MoveAlongPath(child_node.display_node, arc_segment),
-                                   mnm.MoveAlongPath(child_node.display_node, second_segment))
+                                   mnm.AnimationGroup(dot_animation,
+                                                      mnm.Succession(mnm.MoveAlongPath(child_node.display_node, first_segment),
+                                                                     mnm.MoveAlongPath(child_node.display_node, arc_segment),
+                                                                     mnm.MoveAlongPath(child_node.display_node, second_segment))))
         child_node.animations = path_anim
         child_node.polar_final_angle = arc_final_angle
         child_node.polar_final_radius = norm(second_segment.get_end())
@@ -253,27 +289,30 @@ class CollatzViz(mnm.MovingCameraScene):
         animates the tree.
         """
         self.camera.frame.save_state()
+        self.add(self.number_line)
         root_circle = self.circle_factory(shell=0)
         root_text = mnm.Text("1").next_to(root_circle, mnm.DOWN)
+        root_dot = self.dot_factory(shell=0).move_to(self.number_line.number_to_point(1) + mnm.OUT)
         root_node = NodeInfo(
             value=1,
             shell=0,
             display_node=root_circle,
             display_text=root_text,
             display_trace=None,
+            display_dot=root_dot,
             polar_final_angle=0.0,
             polar_final_radius=0.0,
-            animations=mnm.FadeIn(root_circle, root_text),
+            animations=mnm.FadeIn(root_circle, root_text, root_dot),
         )
         open = PriorityNodeQueue([root_node])
         closed: List[NodeInfo] = []
         self.camera.frame.set(height=50)
-        nl = self.number_line_factory()
-        self.add(nl)
         for _ in range(self.nodes_to_generate):
             curr_node = open.pop()
             # self.play(self.camera.frame.animate.set(width=self.step_size * next_node.value + 3))
+            print(f'Outer loop, just before animating node ({curr_node.value}); dot loc = {curr_node.display_dot.get_center()}')
             self.play(curr_node.animations)
+            print(f'Outer loop, just AFTER animating node ({curr_node.value}); dot loc = {curr_node.display_dot.get_center()}')
             open.enqueue(self.generate_doubling_node(curr_node))
             if (curr_node.value == 2):
                 self.play(mnm.Create(mnm.ArcBetweenPoints(curr_node.display_node.get_center(),
