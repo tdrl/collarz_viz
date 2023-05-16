@@ -75,7 +75,7 @@ class CollatzViz(mnm.MovingCameraScene):
     that we can fit it all in a bounded space.
     """
 
-    def __init__(self, nodes_to_generate: int = 8, **kwargs: Dict[str, Any]):
+    def __init__(self, nodes_to_generate: int = 1, **kwargs: Dict[str, Any]):
         """Configure Collatz process viz.
 
         Args:
@@ -166,6 +166,20 @@ class CollatzViz(mnm.MovingCameraScene):
                                            child_node.display_trace)
         return child_node
 
+    def number_line_factory(self) -> mnm.NumberLine:
+        result = mnm.NumberLine(x_range=[0, 64, 2],
+                                numbers_with_elongated_ticks=range(0, 64, 2),
+                                longer_tick_multiple=3,
+                                include_tip=True,
+                                tip_shape=mnm.ArrowCircleTip,
+                                include_numbers=True,
+                                stroke_width=2 * self.trace_stroke_width,
+                                font_size=64,
+                                # scaling=mnm.LogBase(base=2),
+                                line_to_number_buff=mnm.LARGE_BUFF)
+        result.move_to(mnm.DOWN * 5 * self.circle_radius - result.number_to_point(1))
+        return result
+
     def generate_doubling_node(self, parent: NodeInfo) -> NodeInfo:
         """Create and animate a node in the "2n" part of the reverse Collatz process.
 
@@ -254,6 +268,8 @@ class CollatzViz(mnm.MovingCameraScene):
         open = PriorityNodeQueue([root_node])
         closed: List[NodeInfo] = []
         self.camera.frame.set(height=50)
+        nl = self.number_line_factory()
+        self.add(nl)
         for _ in range(self.nodes_to_generate):
             curr_node = open.pop()
             # self.play(self.camera.frame.animate.set(width=self.step_size * next_node.value + 3))
