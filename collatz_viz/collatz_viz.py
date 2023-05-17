@@ -77,7 +77,7 @@ class CollatzViz(mnm.MovingCameraScene):
     that we can fit it all in a bounded space.
     """
 
-    def __init__(self, nodes_to_generate: int = 5, **kwargs: Dict[str, Any]):
+    def __init__(self, nodes_to_generate: int = 30, **kwargs: Dict[str, Any]):
         """Configure Collatz process viz.
 
         Args:
@@ -154,6 +154,7 @@ class CollatzViz(mnm.MovingCameraScene):
     def dot_factory(self, shell: int) -> mnm.Dot:
         return mnm.Dot(radius=self.dot_radius,
                        fill_opacity=self.dot_opacity,
+                    #    color=mnm.GREEN)
                        color=self.get_color_by_shell(shell=shell))
 
     def node_factory(self, parent: NodeInfo, child_val: int) -> NodeInfo:
@@ -187,10 +188,10 @@ class CollatzViz(mnm.MovingCameraScene):
         print(f'Initial dot({child_val}) loc = {child_node.display_dot.get_center()}')
         child_node.display_dot.move_to(self.number_line.number_to_point(parent.value) + mnm.OUT)
         print(f'After locating on number line dot({child_val}) loc = {child_node.display_dot.get_center()})')
-        child_node.animations = mnm.FadeIn(child_node.display_node,
-                                           child_node.display_text,
-                                           child_node.display_trace,
-                                           child_node.display_dot)
+        child_node.animations = mnm.AnimationGroup(mnm.FadeIn(child_node.display_dot),
+                                                   mnm.FadeIn(child_node.display_node,
+                                                              child_node.display_text,
+                                                              child_node.display_trace))
         print(f'After fade-in dot({child_val}) loc = {child_node.display_dot.get_center()}')
         return child_node
 
