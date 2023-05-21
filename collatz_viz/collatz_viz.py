@@ -17,9 +17,10 @@ To compile the visualization, use:
 
 import manim as mnm
 from dataclasses import dataclass, field
-from typing import Optional, List, Iterable, Any, Dict, Type
+from typing import Optional, List, Iterable, Any, Dict, Union
 import numpy as np
 from numpy.linalg import norm
+from numpy.typing import ArrayLike
 import heapq
 
 
@@ -69,6 +70,92 @@ class PriorityNodeQueue(object):
         return heapq.heappop(self.queue)
 
 
+class MonotonicBBoxMovingCamera(mnm.MovingCamera):
+    def __init__(self, content_bbox_bounds: ArrayLike = np.array([-5, -5, 36, 36]), margin: float = 3.0, **kwargs):
+        super().__init__(**kwargs)
+        # A bounding box for all visible elements, represented as [x_ll, y_ll, x_ur, y_ur].
+        # Used to set the frame for the scene camera.
+        self.content_bbox = np.array([+np.Inf, +np.Inf, -np.Inf, -np.Inf])
+        # Some sanity bounds to keep the bbox from escaping to infinity as we add more
+        # and more distant nodes.
+        self.content_bbox_bounds: np.ndarray = np.asarray(content_bbox_bounds)
+        self.margin = margin
+
+    def add_to_bbox(self, mobject: Union[mnm.Mobject, ArrayLike]):
+        """Add the bounding boxes of the arguments to the current scene content bounding box.
+
+        Args:
+            mobject (Union[mnm.Mobject, NodeInfo, ArrayLike]): Object or coordinates to add to
+                the scene bounding box. Special handling by input type:
+                    * Mobject: Adds bounding box directly.
+                    * ArrayLike: Assumed to be a bbox in [x_ll, y_ll, x_ur, y_ur] coordinates.
+        """
+        if isinstance(mobject, mnm.Mobject):
+            bbox_to_add = np.array([mobject.get_left()[0],
+                                    mobject.get_bottom()[1],
+                                    mobject.get_right()[0],
+                                    mobject.get_top()[1]])
+        else:
+            bbox_to_add = np.asarray(mobject)
+            if bbox_to_add.shape != (4,):
+                raise ValueError(f'Caller provided bad bounding box shape '
+                                 f'({mobject} with shape {bbox_to_add.shape}) when shape (4,) expected')
+        self.content_bbox[0:2] = np.minimum(self.content_bbox[0:2], bbox_to_add[0:2])
+        self.content_bbox[0:2] = np.maximum(self.content_bbox[0:2], self.content_bbox_bounds[0:2])
+        self.content_bbox[2:4] = np.maximum(self.content_bbox[2:4], bbox_to_add[2:4])
+        self.content_bbox[2:4] = np.minimum(self.content_bbox[2:4], self.content_bbox_bounds[2:4])
+
+    def get_content_bbox(self):
+        return self.content_bbox
+
+    def set_frame_from_bbox(self, animate: bool = True) -> Union[mnm.Mobject, mnm.Animation]:
+        # This logic is borrowed and lightly adapted from MovingCamera.auto_zoom().
+        # I'm not _totally_ sure that it's the right thing for our use, but it makes
+        # a good starting point.
+        center = (self.content_bbox[2:4] + self.content_bbox[0:2]) / 2
+        new_width_height = np.abs(self.content_bbox[2:4] - self.content_bbox[0:2])
+        m_target = self.frame.animate if animate else self.frame
+        if (new_width_height[0] / self.frame.width) > (new_width_height[1] / self.frame.height):
+            return m_target.set_x(center[0]).set_y(center[1]).set(width=new_width_height[0] + self.margin)
+        else:
+            return m_target.set_x(center[0]).set_y(center[1]).set(height=new_width_height[1] + self.margin)
+
+
+def polar_to_cartesian(point_p: ArrayLike, origin: ArrayLike = mnm.ORIGIN) -> np.ndarray:
+    """Convert polar to Cartesian coordinates.
+
+    Args:
+        point_p: (ArrayLike): Polar coordinate point in [theta, radius, z] format.
+        origin (ArrayLike, optional): [x, y, z] coordinates of Cartesian origin. Defaults to mnm.ORIGIN.
+
+    Returns:
+        np.ndarray: [x, y, z] coordinate of point in Cartesian space, where (x, y) are
+            computed from (theta, radius) and z is copied from point_p.
+    """
+    point_p = np.asarray(point_p)
+    origin = np.asarray(origin)
+    return np.array([point_p[1] * np.cos(point_p[0]), point_p[1] * np.sin(point_p[0]), point_p[2]]) + origin
+
+
+def cartesian_to_polar(c_point: ArrayLike, origin: ArrayLike = mnm.ORIGIN) -> np.ndarray:
+    """Convert Cartesian to polar coordinates.
+
+    Args:
+        c_point (ArrayLike): Cartesian point in [x, y, z] coordinate form.
+        origin (ArrayLike, optional): Origin of the Cartesian coordinate system. Defaults to mnm.ORIGIN.
+
+    Returns:
+        np.ndarray: [theta, radius, z], where (theta, radius) are computed from (x, y) and
+            z is copied from origin.
+    """
+    c_point = np.asarray(c_point)
+    origin = np.asarray(origin)
+    delta = c_point - origin
+    return np.array([np.arctan2(delta[1], delta[0]),
+                     norm(delta[0:2]),
+                     delta[2]])
+
+
 class CollatzViz(mnm.MovingCameraScene):
     """The main visualization.
 
@@ -77,7 +164,7 @@ class CollatzViz(mnm.MovingCameraScene):
     that we can fit it all in a bounded space.
     """
 
-    def __init__(self, nodes_to_generate: int = 8, **kwargs: Dict[str, Any]):
+    def __init__(self, nodes_to_generate: int = 10, **kwargs: Dict[str, Any]):
         """Configure Collatz process viz.
 
         Args:
@@ -85,7 +172,7 @@ class CollatzViz(mnm.MovingCameraScene):
                 Larger numbers makes bigger, more elaborate visualizations, but takes longer
                 to render. Defaults to 100.
         """
-        super().__init__(**kwargs)
+        super().__init__(camera_class=MonotonicBBoxMovingCamera, **kwargs)
         self.nodes_to_generate = nodes_to_generate
         # Starting point of the visualization.
         self.origin = mnm.ORIGIN
@@ -112,11 +199,11 @@ class CollatzViz(mnm.MovingCameraScene):
         # Fundamental "step size": distance between final placement of nodes.
         self.step_size = 6.0 * self.circle_radius
         # Fundamental rotational angle for each arc in the layout.
-        self.arc_angle = 135 * mnm.DEGREES
+        self.arc_angle = 2 * mnm.PI / 3
         # Exponential decay factors: How quickly we decay circle sizes, polar angles
         # of rotation, and step sizes as we move out in "shells" from the origin.
         self.circle_radius_decay = 0.9
-        self.angular_decay = 0.7
+        self.angular_decay = 0.75
         self.distance_decay = 0.9
         self.number_line: mnm.NumberLine = self.number_line_factory()
 
@@ -226,9 +313,9 @@ class CollatzViz(mnm.MovingCameraScene):
         child_node.polar_final_radius = parent.polar_final_radius + move_dist
         here = child_node.display_node.get_center()
         move_path = mnm.Line(start=here,
-                             end=[here[0] + move_dist * np.cos(child_node.polar_final_angle),
-                                  here[1] + move_dist * np.sin(child_node.polar_final_angle),
-                                  0.0])
+                             end=np.array([here[0] + move_dist * np.cos(child_node.polar_final_angle),
+                                           here[1] + move_dist * np.sin(child_node.polar_final_angle),
+                                           0.0]))
         dot_animation = child_node.display_dot.animate.move_to(self.number_line.number_to_point(child_node.value) + mnm.OUT)
         child_node.animations = mnm.Succession(child_node.animations,
                                                mnm.AnimationGroup(mnm.MoveAlongPath(child_node.display_node, move_path),
@@ -250,35 +337,54 @@ class CollatzViz(mnm.MovingCameraScene):
         """
         child_val = int((2 * parent.value - 1) / 3)
         child_node = self.node_factory(parent=parent, child_val=child_val)
-        here = child_node.display_node.get_center()
+        path_start_polar = cartesian_to_polar(child_node.display_node.get_center(), origin=self.origin)
         move_dist = np.power(self.distance_decay, child_node.shell) * self.step_size
-        there = here + np.array([move_dist / 2 * np.cos(parent.polar_final_angle),
-                                 move_dist / 2 * np.sin(parent.polar_final_angle),
-                                 0.0])
-        first_segment = mnm.Line(start=here, end=there)
-        arc_init_radius = norm(there - self.origin)
-        arc_init_angle = np.arctan2(here[1], here[0])
+        arc_start_polar = path_start_polar + np.array([0, move_dist / 2, 0])
+        first_segment = mnm.Line(start=polar_to_cartesian(path_start_polar, origin=self.origin),
+                                 end=polar_to_cartesian(arc_start_polar, origin=self.origin))
         turn_angle = np.power(self.angular_decay, child_node.shell) * self.arc_angle
-        arc_final_angle = arc_init_angle + turn_angle
-        arc_segment = mnm.Arc(radius=arc_init_radius, arc_center=self.origin, start_angle=arc_init_angle, angle=turn_angle)
-        here = arc_segment.get_end()
-        there = arc_segment.get_end() + np.array([move_dist / 2 * np.cos(arc_final_angle),
-                                                  move_dist / 2 * np.sin(arc_final_angle),
-                                                  0.0])
-        second_segment = mnm.Line(start=here, end=there)
+        arc_end_polar = arc_start_polar + np.array([turn_angle, 0, 0])
+        arc_segment = mnm.Arc(radius=arc_start_polar[1],
+                              arc_center=self.origin,
+                              start_angle=arc_start_polar[0],
+                              angle=turn_angle)
+        second_segment_end_polar = arc_end_polar + np.array([0, move_dist / 2, 0])
+        second_segment = mnm.Line(start=polar_to_cartesian(arc_end_polar, origin=self.origin),
+                                  end=polar_to_cartesian(second_segment_end_polar, origin=self.origin))
         dot_animation = child_node.display_dot.animate.move_to(self.number_line.number_to_point(child_node.value) + mnm.OUT)
-        path_anim = mnm.Succession(child_node.animations,
-                                   mnm.AnimationGroup(dot_animation,
-                                                      mnm.Succession(mnm.MoveAlongPath(child_node.display_node, first_segment),
-                                                                     mnm.MoveAlongPath(child_node.display_node, arc_segment),
-                                                                     mnm.MoveAlongPath(child_node.display_node, second_segment))))
+        path_anim = mnm.Succession(
+            child_node.animations,
+            mnm.AnimationGroup(dot_animation,
+                               mnm.Succession(mnm.MoveAlongPath(child_node.display_node, first_segment),
+                               mnm.MoveAlongPath(child_node.display_node, arc_segment),
+                               mnm.MoveAlongPath(child_node.display_node, second_segment))))
         child_node.animations = path_anim
-        child_node.polar_final_angle = arc_final_angle
-        child_node.polar_final_radius = norm(second_segment.get_end())
+        child_node.polar_final_angle = second_segment_end_polar[0]
+        child_node.polar_final_radius = second_segment_end_polar[1]
         return child_node
 
-    def get_all_trackable_mobjects(self, nodes: List[NodeInfo]) -> List[mnm.Mobject]:
-        return [x.display_node for x in nodes] + [x.display_dot for x in nodes]
+    def update_camera_from_node(self, new_node: NodeInfo) -> mnm.Animation:
+        self.camera.add_to_bbox(new_node.display_node)
+        self.camera.add_to_bbox(new_node.display_text)
+        # Final position of display dot.
+        dot_center = self.number_line.number_to_point(new_node.value)
+        dot_radius = new_node.display_dot.radius
+        dot_bbox = np.array([dot_center[0] - dot_radius,
+                             dot_center[1] - dot_radius,
+                             dot_center[0] + dot_radius,
+                             dot_center[1] + dot_radius])
+        self.camera.add_to_bbox(dot_bbox)
+        # Final position of display node.
+        node_center = polar_to_cartesian([new_node.polar_final_angle,
+                                          new_node.polar_final_radius,
+                                          self.origin[2]])
+        node_radius = new_node.display_node.radius
+        node_bbox = np.array([node_center[0] - node_radius,
+                              node_center[1] - node_radius,
+                              node_center[0] + node_radius,
+                              node_center[1] + node_radius])
+        self.camera.add_to_bbox(node_bbox)
+        return self.camera.set_frame_from_bbox(animate=True)
 
     def construct(self):
         """Main 'script' for the animation.
@@ -304,21 +410,21 @@ class CollatzViz(mnm.MovingCameraScene):
         )
         open = PriorityNodeQueue([root_node])
         closed: List[NodeInfo] = []
-        # self.camera.frame.set(height=50)
-        self.play(self.camera.auto_zoom([root_circle, root_dot], margin=3 * self.circle_radius, animate=True))
         for _ in range(self.nodes_to_generate):
             curr_node = open.pop()
             closed.append(curr_node)
-            camera_motion = self.camera.auto_zoom(self.get_all_trackable_mobjects(closed), margin=3 * self.circle_radius, animate=True)
-            # self.play(self.camera.frame.animate.set(width=self.step_size * next_node.value + 3))
+            camera_motion = self.update_camera_from_node(curr_node)
             self.play(mnm.AnimationGroup(camera_motion, curr_node.animations))
             open.enqueue(self.generate_doubling_node(curr_node))
             if (curr_node.value == 2):
-                self.play(mnm.Create(mnm.ArcBetweenPoints(curr_node.display_node.get_center(),
-                                                          root_node.display_node.get_center(),
-                                                          angle=mnm.PI,
-                                                          z_index=-2,
-                                                          stroke_width=self.trace_stroke_width,
-                                                          stroke_color=self.trace_stroke_color)))
+                back_arc = mnm.ArcBetweenPoints(curr_node.display_node.get_center(),
+                                                root_node.display_node.get_center(),
+                                                angle=mnm.PI,
+                                                z_index=-2,
+                                                stroke_width=self.trace_stroke_width,
+                                                stroke_color=self.trace_stroke_color)
+                self.camera.add_to_bbox(back_arc)
+                camera_motion = self.camera.set_frame_from_bbox(animate=True)
+                self.play(mnm.AnimationGroup(mnm.Create(back_arc), camera_motion))
             if (curr_node.value > 2) and (curr_node.value % 3 == 2):
                 open.enqueue(self.generate_division_node(curr_node))
