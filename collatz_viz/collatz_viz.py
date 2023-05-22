@@ -120,6 +120,17 @@ class MonotonicBBoxMovingCamera(mnm.MovingCamera):
         else:
             return m_target.set_x(center[0]).set_y(center[1]).set(height=new_width_height[1] + self.margin)
 
+    def set_content_bbox_bounds(self, bounds: ArrayLike):
+        bounds = np.asarray(bounds)
+        if bounds.shape != (4,):
+            raise ValueError(f'Proposed content bounding box outer bounds is wrong shape. Got {bounds.shape}, '
+            'but expected (4,)')
+        if bounds[2] <= bounds[0] or bounds[3] <= bounds[1]:
+            raise ValueError(f'Illegal/ill-formed content outer bounds for {self.__class__.__name__}: '
+                             f'upper right corner, {bounds[2:4]}, either not above or to the right of lower '
+                             f'left corner, {bounds[0:2]}')
+        self.content_bbox_bounds = bounds
+
 
 def polar_to_cartesian(point_p: ArrayLike, origin: ArrayLike = mnm.ORIGIN) -> np.ndarray:
     """Convert polar to Cartesian coordinates.
@@ -164,7 +175,7 @@ class CollatzViz(mnm.MovingCameraScene):
     that we can fit it all in a bounded space.
     """
 
-    def __init__(self, nodes_to_generate: int = 100, **kwargs: Dict[str, Any]):
+    def __init__(self, nodes_to_generate: int = 4, **kwargs: Dict[str, Any]):
         """Configure Collatz process viz.
 
         Args:
@@ -199,13 +210,23 @@ class CollatzViz(mnm.MovingCameraScene):
         # Fundamental "step size": distance between final placement of nodes.
         self.step_size = 6.0 * self.circle_radius
         # Fundamental rotational angle for each arc in the layout.
-        self.arc_angle = 2 * mnm.PI / 3
+        self.arc_angle = 3 * mnm.PI / 2
         # Exponential decay factors: How quickly we decay circle sizes, polar angles
         # of rotation, and step sizes as we move out in "shells" from the origin.
         self.circle_radius_decay = 0.9
-        self.angular_decay = 0.75
+        self.angular_decay = 0.6
         self.distance_decay = 0.9
         self.number_line: mnm.NumberLine = self.number_line_factory()
+        # Set some outer bounds to the camera bounding box based on most distant
+        # expected nodes.
+        self.convergent_point = self.origin + self.step_size * self.distance_decay / (1 - self.distance_decay)
+        self.edge_buffer = 5 * self.circle_radius
+        self.camera.set_content_bbox_bounds([
+            np.minimum(self.origin[0] - self.circle_radius, self.number_line.get_left()[0]) - self.edge_buffer,
+            self.number_line.get_bottom()[1] - self.edge_buffer,
+            self.convergent_point[0] + self.edge_buffer,
+            self.convergent_point[1] + self.edge_buffer
+        ])
 
     def get_color_by_shell(self, shell: int) -> mnm.color.Color:
         """Generate a color scaled by radial shell from the origin.
@@ -363,6 +384,25 @@ class CollatzViz(mnm.MovingCameraScene):
         child_node.polar_final_radius = second_segment_end_polar[1]
         return child_node
 
+    def generate_back_to_root_arc(self, root_node: NodeInfo, curr_node: NodeInfo) -> mnm.Animation:
+        arc_start = curr_node.display_node.get_center() + self.distance_decay * self.step_size / 2 * mnm.RIGHT
+        first_segment = mnm.Line(curr_node.display_node.get_center(),
+                                 arc_start,
+                                 z_index=-2,
+                                 stroke_width=self.trace_stroke_width,
+                                 stroke_color=self.trace_stroke_color)
+        back_arc = mnm.ArcBetweenPoints(arc_start,
+                                        root_node.display_node.get_center(),
+                                        angle=mnm.PI,
+                                        z_index=-2,
+                                        stroke_width=self.trace_stroke_width,
+                                        stroke_color=self.trace_stroke_color)
+        self.camera.add_to_bbox(back_arc)
+        camera_motion = self.camera.set_frame_from_bbox(animate=True)
+        return mnm.AnimationGroup(mnm.Succession(mnm.Create(first_segment),
+                                                 mnm.Create(back_arc)),
+                                  camera_motion)
+
     def update_camera_from_node(self, new_node: NodeInfo) -> mnm.Animation:
         self.camera.add_to_bbox(new_node.display_node)
         self.camera.add_to_bbox(new_node.display_text)
@@ -408,6 +448,14 @@ class CollatzViz(mnm.MovingCameraScene):
             polar_final_radius=0.0,
             animations=mnm.FadeIn(root_circle, root_text, root_dot),
         )
+        # Initial camera view.
+        self.camera.add_to_bbox(np.array([
+            np.minimum(root_circle.get_left()[0], self.number_line.get_left()[0]) - self.edge_buffer,
+            self.number_line.get_bottom()[1] - self.edge_buffer,
+            root_circle.get_right()[0] + self.edge_buffer,
+            root_circle.get_top()[1] + self.edge_buffer
+        ]))
+        self.camera.set_frame_from_bbox(animate=False)
         open = PriorityNodeQueue([root_node])
         closed: List[NodeInfo] = []
         for _ in range(self.nodes_to_generate):
@@ -417,14 +465,6 @@ class CollatzViz(mnm.MovingCameraScene):
             self.play(mnm.AnimationGroup(camera_motion, curr_node.animations))
             open.enqueue(self.generate_doubling_node(curr_node))
             if (curr_node.value == 2):
-                back_arc = mnm.ArcBetweenPoints(curr_node.display_node.get_center(),
-                                                root_node.display_node.get_center(),
-                                                angle=mnm.PI,
-                                                z_index=-2,
-                                                stroke_width=self.trace_stroke_width,
-                                                stroke_color=self.trace_stroke_color)
-                self.camera.add_to_bbox(back_arc)
-                camera_motion = self.camera.set_frame_from_bbox(animate=True)
-                self.play(mnm.AnimationGroup(mnm.Create(back_arc), camera_motion))
+                self.play(self.generate_back_to_root_arc(root_node, curr_node))
             if (curr_node.value > 2) and (curr_node.value % 3 == 2):
                 open.enqueue(self.generate_division_node(curr_node))
