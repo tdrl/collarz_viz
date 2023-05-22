@@ -164,7 +164,7 @@ class CollatzViz(mnm.MovingCameraScene):
     that we can fit it all in a bounded space.
     """
 
-    def __init__(self, nodes_to_generate: int = 10, **kwargs: Dict[str, Any]):
+    def __init__(self, nodes_to_generate: int = 100, **kwargs: Dict[str, Any]):
         """Configure Collatz process viz.
 
         Args:
