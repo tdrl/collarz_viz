@@ -175,7 +175,7 @@ class CollatzViz(mnm.MovingCameraScene):
     that we can fit it all in a bounded space.
     """
 
-    def __init__(self, nodes_to_generate: int = 4, **kwargs: Dict[str, Any]):
+    def __init__(self, nodes_to_generate: int = 128, **kwargs: Dict[str, Any]):
         """Configure Collatz process viz.
 
         Args:
@@ -213,19 +213,34 @@ class CollatzViz(mnm.MovingCameraScene):
         self.arc_angle = 3 * mnm.PI / 2
         # Exponential decay factors: How quickly we decay circle sizes, polar angles
         # of rotation, and step sizes as we move out in "shells" from the origin.
-        self.circle_radius_decay = 0.9
-        self.angular_decay = 0.6
-        self.distance_decay = 0.9
+        #
+        # Angle decay is the trickiest one. If this number is too small, the arcs
+        # vanish quickly. If it's too big, they cut across each other. We know that,
+        # on most branches, new branching arcs occur every other node. We want to
+        # make sure that branches converge to a bounded radial distance, so we
+        # use a geometric decay with a constant < 1/2 => \sum_i=1^inf decay^i = 1.
+        # Since branches happen every other shell, we only need to decay by sqrt(1/2)
+        # at each shell.
+        # self.angular_decay = np.sqrt(0.499)
+        # TODO(hlane): This clearly needs to be more sophisticated. Ugh. Should probably
+        # look at a modulus to see what category of branch we're on and decide on decay
+        # factor dynamically from that. For the moment, let's go for scorched earth.
+        self.angular_decay = 0.5
+        # Decay in the length of radial segments with shell.
+        self.distance_decay = 0.87
+        self.circle_radius_decay = self.distance_decay
+        # Distance that the geometric decay of radial distance will converge to.
+        self.convergence_distance = self.step_size * self.distance_decay / (1 - self.distance_decay)
         self.number_line: mnm.NumberLine = self.number_line_factory()
         # Set some outer bounds to the camera bounding box based on most distant
         # expected nodes.
-        self.convergent_point = self.origin + self.step_size * self.distance_decay / (1 - self.distance_decay)
         self.edge_buffer = 5 * self.circle_radius
+        aspect_ratio = self.camera.frame.aspect_ratio if self.camera.frame.aspect_ratio else (16.0 / 9.0)
         self.camera.set_content_bbox_bounds([
-            np.minimum(self.origin[0] - self.circle_radius, self.number_line.get_left()[0]) - self.edge_buffer,
-            self.number_line.get_bottom()[1] - self.edge_buffer,
-            self.convergent_point[0] + self.edge_buffer,
-            self.convergent_point[1] + self.edge_buffer
+            (self.origin + aspect_ratio * self.convergence_distance * mnm.LEFT)[0] - self.edge_buffer,
+            self.number_line.get_bottom()[1] - 2 * self.edge_buffer,
+            (self.origin + aspect_ratio * self.convergence_distance * mnm.RIGHT)[0] + self.edge_buffer,
+            (self.origin + self.convergence_distance * mnm.UP)[1] + self.edge_buffer
         ])
 
     def get_color_by_shell(self, shell: int) -> mnm.color.Color:
@@ -301,15 +316,13 @@ class CollatzViz(mnm.MovingCameraScene):
         return child_node
 
     def number_line_factory(self) -> mnm.NumberLine:
-        result = mnm.NumberLine(x_range=[0, 64, 2],
-                                numbers_with_elongated_ticks=range(0, 64, 2),
+        numberline_end = int(np.floor(self.convergence_distance * 2))
+        result = mnm.NumberLine(x_range=[0, numberline_end, 2],
+                                numbers_with_elongated_ticks=range(0, numberline_end, 2),
                                 longer_tick_multiple=3,
-                                include_tip=True,
-                                tip_shape=mnm.ArrowCircleTip,
                                 include_numbers=True,
                                 stroke_width=2 * self.trace_stroke_width,
                                 font_size=64,
-                                # scaling=mnm.LogBase(base=2),
                                 line_to_number_buff=mnm.LARGE_BUFF)
         result.move_to(mnm.DOWN * 5 * self.circle_radius - result.number_to_point(1) + mnm.IN)
         return result
