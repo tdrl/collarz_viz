@@ -24,6 +24,10 @@ from numpy.typing import ArrayLike
 import heapq
 
 
+LOG = mnm.logger
+CONSOLE = mnm.console
+
+
 @dataclass(order=True)
 class NodeInfo:
     """A container for all of the information we need to track about a single visual node.
@@ -68,6 +72,15 @@ class PriorityNodeQueue(object):
 
     def pop(self) -> NodeInfo:
         return heapq.heappop(self.queue)
+
+    def pop_all(self) -> List[NodeInfo]:
+        result = []
+        if len(self.queue) < 1:
+            return result
+        target_shell = self.queue[0].shell
+        while len(self.queue) > 0 and self.queue[0].shell == target_shell:
+            result.append(self.pop())
+        return result
 
 
 class MonotonicBBoxMovingCamera(mnm.MovingCamera):
@@ -175,7 +188,7 @@ class CollatzViz(mnm.MovingCameraScene):
     that we can fit it all in a bounded space.
     """
 
-    def __init__(self, nodes_to_generate: int = 128, **kwargs: Dict[str, Any]):
+    def __init__(self, shells_to_generate: int = 5, **kwargs: Dict[str, Any]):
         """Configure Collatz process viz.
 
         Args:
@@ -184,7 +197,7 @@ class CollatzViz(mnm.MovingCameraScene):
                 to render. Defaults to 100.
         """
         super().__init__(camera_class=MonotonicBBoxMovingCamera, **kwargs)
-        self.nodes_to_generate = nodes_to_generate
+        self.shells_to_generate = shells_to_generate
         # Starting point of the visualization.
         self.origin = mnm.ORIGIN
         # Initial circle radius for root node.
@@ -210,7 +223,7 @@ class CollatzViz(mnm.MovingCameraScene):
         # Fundamental "step size": distance between final placement of nodes.
         self.step_size = 6.0 * self.circle_radius
         # Fundamental rotational angle for each arc in the layout.
-        self.arc_angle = 3 * mnm.PI / 2
+        self.arc_angle = mnm.PI / 2
         # Exponential decay factors: How quickly we decay circle sizes, polar angles
         # of rotation, and step sizes as we move out in "shells" from the origin.
         #
@@ -225,10 +238,10 @@ class CollatzViz(mnm.MovingCameraScene):
         # TODO(hlane): This clearly needs to be more sophisticated. Ugh. Should probably
         # look at a modulus to see what category of branch we're on and decide on decay
         # factor dynamically from that. For the moment, let's go for scorched earth.
-        self.angular_decay = 0.5
+        self.angular_decay = 0.75
         # Decay in the length of radial segments with shell.
         self.distance_decay = 0.87
-        self.circle_radius_decay = self.distance_decay
+        self.circle_radius_decay = self.distance_decay - 0.05
         # Distance that the geometric decay of radial distance will converge to.
         self.convergence_distance = self.step_size * self.distance_decay / (1 - self.distance_decay)
         self.number_line: mnm.NumberLine = self.number_line_factory()
@@ -416,7 +429,7 @@ class CollatzViz(mnm.MovingCameraScene):
                                                  mnm.Create(back_arc)),
                                   camera_motion)
 
-    def update_camera_from_node(self, new_node: NodeInfo) -> mnm.Animation:
+    def update_camera_from_node(self, new_node: NodeInfo):
         self.camera.add_to_bbox(new_node.display_node)
         self.camera.add_to_bbox(new_node.display_text)
         # Final position of display dot.
@@ -437,7 +450,6 @@ class CollatzViz(mnm.MovingCameraScene):
                               node_center[0] + node_radius,
                               node_center[1] + node_radius])
         self.camera.add_to_bbox(node_bbox)
-        return self.camera.set_frame_from_bbox(animate=True)
 
     def construct(self):
         """Main 'script' for the animation.
@@ -471,13 +483,22 @@ class CollatzViz(mnm.MovingCameraScene):
         self.camera.set_frame_from_bbox(animate=False)
         open = PriorityNodeQueue([root_node])
         closed: List[NodeInfo] = []
-        for _ in range(self.nodes_to_generate):
-            curr_node = open.pop()
-            closed.append(curr_node)
-            camera_motion = self.update_camera_from_node(curr_node)
-            self.play(mnm.AnimationGroup(camera_motion, curr_node.animations))
-            open.enqueue(self.generate_doubling_node(curr_node))
-            if (curr_node.value == 2):
-                self.play(self.generate_back_to_root_arc(root_node, curr_node))
-            if (curr_node.value > 2) and (curr_node.value % 3 == 2):
-                open.enqueue(self.generate_division_node(curr_node))
+        for _ in range(self.shells_to_generate):
+            shell_animations = []
+            this_shell_list = open.pop_all()
+            CONSOLE.print(f'Working shell = {this_shell_list[0].shell}')
+            CONSOLE.print(f'\t{[(n.shell, n.value) for n in this_shell_list]}')
+            for curr_node in this_shell_list:
+                closed.append(curr_node)
+                self.update_camera_from_node(curr_node)
+                # self.play(mnm.AnimationGroup(camera_motion, curr_node.animations))
+                shell_animations.append(curr_node.animations)
+                open.enqueue(self.generate_doubling_node(curr_node))
+                if (curr_node.value == 2):
+                    shell_animations.append(self.generate_back_to_root_arc(root_node, curr_node))
+                if (curr_node.value > 2) and (curr_node.value % 3 == 2):
+                    open.enqueue(self.generate_division_node(curr_node))
+            shell_animations.append(self.camera.set_frame_from_bbox(animate=True))
+            CONSOLE.print(f'Rendering {len(shell_animations)} animations')
+            self.play(mnm.AnimationGroup(*shell_animations))
+

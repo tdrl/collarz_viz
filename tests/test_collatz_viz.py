@@ -4,7 +4,14 @@ import unittest
 import collatz_viz.collatz_viz as target
 import numpy as np
 from numpy.testing import assert_almost_equal
+from dataclasses import dataclass
 import manim as mnm
+
+
+@dataclass(order=True)
+class PseudoNodeInfo(object):
+    shell: int
+    value: int
 
 
 class TestCollatzViz(unittest.TestCase):
@@ -66,3 +73,40 @@ class TestCollatzViz(unittest.TestCase):
             assert_almost_equal(target.polar_to_cartesian(target.cartesian_to_polar(point, origin=origin), origin=origin), point,
                                 err_msg=f'Identity mapping failed for point={point}')
 
+    def test_popall_empty(self):
+        queue = target.PriorityNodeQueue()
+        actual = queue.pop_all()
+        self.assertEqual(actual, [])
+
+    def test_popall_singleton(self):
+        queue = target.PriorityNodeQueue([PseudoNodeInfo(shell=4, value=17)])
+        actual = queue.pop_all()
+        self.assertEqual([(n.shell, n.value) for n in actual], [(4, 17)])
+
+    def test_popall_whole_list(self):
+        queue = target.PriorityNodeQueue()
+        for n in [
+                PseudoNodeInfo(shell=4, value=17),
+                PseudoNodeInfo(shell=4, value=3),
+                PseudoNodeInfo(shell=4, value=93),
+            ]:
+            queue.enqueue(n)
+        actual = queue.pop_all()
+        self.assertEqual([(n.shell, n.value) for n in actual],
+                         [(4, 3), (4, 17), (4, 93)])
+
+    def test_popall_partial_list(self):
+        queue = target.PriorityNodeQueue()
+        for n in [
+                PseudoNodeInfo(shell=9, value=-22),
+                PseudoNodeInfo(shell=4, value=17),
+                PseudoNodeInfo(shell=5, value=3),
+                PseudoNodeInfo(shell=4, value=3),
+                PseudoNodeInfo(shell=62, value=17),
+                PseudoNodeInfo(shell=4, value=93),
+                PseudoNodeInfo(shell=5, value=5),
+            ]:
+            queue.enqueue(n)
+        actual = queue.pop_all()
+        self.assertEqual([(n.shell, n.value) for n in actual],
+                         [(4, 3), (4, 17), (4, 93)])
