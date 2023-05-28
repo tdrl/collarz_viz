@@ -314,6 +314,8 @@ class CollatzViz(mnm.MovingCameraScene):
             display_dot=self.dot_factory(child_shell),
         )
         child_node.display_node.move_to(parent.display_node)
+        CONSOLE.print(f'\tparent = {parent.value}; child={child_node.value}')
+        CONSOLE.print(f'\t\tparent.center = {parent.display_node.get_center()}; child.center={child_node.display_node.get_center()}')
         child_node.display_text.match_style(parent.display_text)
         child_node.display_text.clear_updaters()
         child_node.display_text.add_updater(lambda x: x.next_to(child_node.display_node, mnm.DOWN))
@@ -487,11 +489,12 @@ class CollatzViz(mnm.MovingCameraScene):
             shell_animations = []
             this_shell_list = open.pop_all()
             CONSOLE.print(f'Working shell = {this_shell_list[0].shell}')
-            CONSOLE.print(f'\t{[(n.shell, n.value) for n in this_shell_list]}')
+            CONSOLE.print(f'\t{[(n.shell, n.value, n.display_node.get_arc_center()) for n in this_shell_list]}')
             for curr_node in this_shell_list:
                 closed.append(curr_node)
                 self.update_camera_from_node(curr_node)
                 # self.play(mnm.AnimationGroup(camera_motion, curr_node.animations))
+                CONSOLE.print(f'\t\tnode({curr_node.shell}, {curr_node.value}).animations = {curr_node.animations}')
                 shell_animations.append(curr_node.animations)
                 open.enqueue(self.generate_doubling_node(curr_node))
                 if (curr_node.value == 2):
@@ -500,5 +503,5 @@ class CollatzViz(mnm.MovingCameraScene):
                     open.enqueue(self.generate_division_node(curr_node))
             shell_animations.append(self.camera.set_frame_from_bbox(animate=True))
             CONSOLE.print(f'Rendering {len(shell_animations)} animations')
-            self.play(mnm.AnimationGroup(*shell_animations))
+            self.play(*shell_animations)
 

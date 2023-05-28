@@ -77,11 +77,13 @@ class TestCollatzViz(unittest.TestCase):
         queue = target.PriorityNodeQueue()
         actual = queue.pop_all()
         self.assertEqual(actual, [])
+        self.assertEqual(len(queue.queue), 0)
 
     def test_popall_singleton(self):
         queue = target.PriorityNodeQueue([PseudoNodeInfo(shell=4, value=17)])
         actual = queue.pop_all()
         self.assertEqual([(n.shell, n.value) for n in actual], [(4, 17)])
+        self.assertEqual(len(queue.queue), 0)
 
     def test_popall_whole_list(self):
         queue = target.PriorityNodeQueue()
@@ -94,6 +96,7 @@ class TestCollatzViz(unittest.TestCase):
         actual = queue.pop_all()
         self.assertEqual([(n.shell, n.value) for n in actual],
                          [(4, 3), (4, 17), (4, 93)])
+        self.assertEqual(len(queue.queue), 0)
 
     def test_popall_partial_list(self):
         queue = target.PriorityNodeQueue()
@@ -110,3 +113,4 @@ class TestCollatzViz(unittest.TestCase):
         actual = queue.pop_all()
         self.assertEqual([(n.shell, n.value) for n in actual],
                          [(4, 3), (4, 17), (4, 93)])
+        self.assertEqual(len(queue.queue), 4)
