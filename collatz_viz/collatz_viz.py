@@ -485,8 +485,8 @@ class CollatzViz(mnm.MovingCameraScene):
         self.camera.set_frame_from_bbox(animate=False)
         open = PriorityNodeQueue([root_node])
         closed: List[NodeInfo] = []
+        shell_animations = []
         for _ in range(self.shells_to_generate):
-            shell_animations = []
             this_shell_list = open.pop_all()
             CONSOLE.print(f'Working shell = {this_shell_list[0].shell}')
             CONSOLE.print(f'\t{[(n.shell, n.value, n.display_node.get_arc_center()) for n in this_shell_list]}')
@@ -507,10 +507,15 @@ class CollatzViz(mnm.MovingCameraScene):
             shell_animations.append(self.camera.set_frame_from_bbox(animate=True))
             CONSOLE.print(f'Rendering {len(shell_animations)} animations')
             self.play(*shell_animations)
+            shell_animations = []
+            # Weird special case: If we're at node 2, we want to generate an arc back to node 1.
+            # However, we want that arc to play simultaneous with 2's child node (4). So we have to
+            # put the arc animation into the animation play list _after_ we've played 2's animation,
+            # but _before_ we open the next shell. Ugh.
+            if (curr_node.value == 2):
+                shell_animations.append(self.generate_back_to_root_arc(root_node, curr_node))
             for curr_node in this_shell_list:
                 open.enqueue(self.generate_doubling_node(curr_node))
-                if (curr_node.value == 2):
-                    shell_animations.append(self.generate_back_to_root_arc(root_node, curr_node))
                 if (curr_node.value > 2) and (curr_node.value % 3 == 2):
                     open.enqueue(self.generate_division_node(curr_node))
             
