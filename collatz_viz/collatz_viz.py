@@ -490,18 +490,28 @@ class CollatzViz(mnm.MovingCameraScene):
             this_shell_list = open.pop_all()
             CONSOLE.print(f'Working shell = {this_shell_list[0].shell}')
             CONSOLE.print(f'\t{[(n.shell, n.value, n.display_node.get_arc_center()) for n in this_shell_list]}')
+            # Note: We need to process the list of nodes to work _twice_:
+            #  - In the first phase, we accumulate all of the animations to be played for this shell's
+            #    nodes, then we play them. This updates their state (specifically, their location).
+            #  - In the second phase, we compute and open the children of each node.
+            # It's important that we play the animations for each node before opening its children;
+            # otherwise, their state isn't up to date and we're starting their children from their
+            # _start_ location, not their _end_ location. (Net result being that everything starts from
+            # the origin.)
             for curr_node in this_shell_list:
                 closed.append(curr_node)
                 self.update_camera_from_node(curr_node)
                 # self.play(mnm.AnimationGroup(camera_motion, curr_node.animations))
                 CONSOLE.print(f'\t\tnode({curr_node.shell}, {curr_node.value}).animations = {curr_node.animations}')
                 shell_animations.append(curr_node.animations)
+            shell_animations.append(self.camera.set_frame_from_bbox(animate=True))
+            CONSOLE.print(f'Rendering {len(shell_animations)} animations')
+            self.play(*shell_animations)
+            for curr_node in this_shell_list:
                 open.enqueue(self.generate_doubling_node(curr_node))
                 if (curr_node.value == 2):
                     shell_animations.append(self.generate_back_to_root_arc(root_node, curr_node))
                 if (curr_node.value > 2) and (curr_node.value % 3 == 2):
                     open.enqueue(self.generate_division_node(curr_node))
-            shell_animations.append(self.camera.set_frame_from_bbox(animate=True))
-            CONSOLE.print(f'Rendering {len(shell_animations)} animations')
-            self.play(*shell_animations)
+            
 
