@@ -54,6 +54,10 @@ class NodeInfo:
     # The final placed location of the node, as measured in polar coordinates.
     polar_final_angle: float = field(default=0.0, compare=False)
     polar_final_radius: float = field(default=0.0, compare=False)
+    # The polar width subtended by the most recent ancestor branching node.
+    # (The (n-1)/3 "division" node, which, in this visualization, generates a
+    # branch along a circular arc.)
+    polar_segment_width: float = field(default=mnm.PI, compare=False)
     # The set of animations required to draw this node and its ancillary
     # visualizations (text, trace, etc.) This can be a single animation or, to
     # compose multiple animations, use mnm.Succession or mnm.AnimationGroup
@@ -188,7 +192,7 @@ class CollatzViz(mnm.MovingCameraScene):
     that we can fit it all in a bounded space.
     """
 
-    def __init__(self, shells_to_generate: int = 11, **kwargs: Dict[str, Any]):
+    def __init__(self, shells_to_generate: int = 16, **kwargs: Dict[str, Any]):
         """Configure Collatz process viz.
 
         Args:
@@ -222,25 +226,15 @@ class CollatzViz(mnm.MovingCameraScene):
         self.trace_stroke_width = 8
         # Fundamental "step size": distance between final placement of nodes.
         self.step_size = 6.0 * self.circle_radius
-        # Fundamental rotational angle for each arc in the layout.
-        self.arc_angle = mnm.PI / 2
-        # Exponential decay factors: How quickly we decay circle sizes, polar angles
-        # of rotation, and step sizes as we move out in "shells" from the origin.
+        # Starting angular width of zero'th branching segment. In practice, this will
+        # immediately be halved when drawing the first branch.
+        self.initial_segment_angle = mnm.PI / 2.0
+        # Exponential decay factors: How quickly we decay circle sizes, and step sizes as we
+        # move out in "shells" (i.e., tree depth) from the origin.
         #
-        # Angle decay is the trickiest one. If this number is too small, the arcs
-        # vanish quickly. If it's too big, they cut across each other. We know that,
-        # on most branches, new branching arcs occur every other node. We want to
-        # make sure that branches converge to a bounded radial distance, so we
-        # use a geometric decay with a constant < 1/2 => \sum_i=1^inf decay^i = 1.
-        # Since branches happen every other shell, we only need to decay by sqrt(1/2)
-        # at each shell.
-        # self.angular_decay = np.sqrt(0.499)
-        # TODO(hlane): This clearly needs to be more sophisticated. Ugh. Should probably
-        # look at a modulus to see what category of branch we're on and decide on decay
-        # factor dynamically from that. For the moment, let's go for scorched earth.
-        self.angular_decay = 0.75
         # Decay in the length of radial segments with shell.
         self.distance_decay = 0.87
+        # Decay of node circle radius with shell.
         self.circle_radius_decay = self.distance_decay - 0.05
         # Distance that the geometric decay of radial distance will converge to.
         self.convergence_distance = self.step_size * self.distance_decay / (1 - self.distance_decay)
@@ -255,7 +249,7 @@ class CollatzViz(mnm.MovingCameraScene):
             (self.origin + aspect_ratio * self.convergence_distance * mnm.RIGHT)[0] + self.edge_buffer,
             (self.origin + self.convergence_distance * mnm.UP)[1] + self.edge_buffer
         ])
-        self.base_animation_run_time_seconds = 1.0
+        self.base_animation_run_time_seconds = 1.5
 
     def get_color_by_shell(self, shell: int) -> mnm.color.Color:
         """Generate a color scaled by radial shell from the origin.
@@ -312,6 +306,7 @@ class CollatzViz(mnm.MovingCameraScene):
             display_node=self.circle_factory(child_shell),
             display_text=mnm.Text(str(child_val)),
             display_dot=self.dot_factory(child_shell),
+            polar_segment_width=parent.polar_segment_width,
         )
         child_node.display_node.move_to(parent.display_node)
         child_node.display_text.match_style(parent.display_text)
@@ -340,7 +335,7 @@ class CollatzViz(mnm.MovingCameraScene):
         result.move_to(mnm.DOWN * 5 * self.circle_radius - result.number_to_point(1) + mnm.IN)
         return result
 
-    def generate_doubling_node(self, parent: NodeInfo) -> NodeInfo:
+    def generate_doubling_node(self, parent: NodeInfo, polar_segment_width: Optional[float]) -> NodeInfo:
         """Create and animate a node in the "2n" part of the reverse Collatz process.
 
         This builds a node at the "2n" branch from its parent and animates moving it
@@ -358,6 +353,8 @@ class CollatzViz(mnm.MovingCameraScene):
         move_dist = np.power(self.distance_decay, child_node.shell) * self.step_size
         child_node.polar_final_angle = parent.polar_final_angle
         child_node.polar_final_radius = parent.polar_final_radius + move_dist
+        if polar_segment_width is not None:
+            child_node.polar_segment_width = polar_segment_width
         here = child_node.display_node.get_center()
         move_path = mnm.Line(start=here,
                              end=np.array([here[0] + move_dist * np.cos(child_node.polar_final_angle),
@@ -389,7 +386,8 @@ class CollatzViz(mnm.MovingCameraScene):
         arc_start_polar = path_start_polar + np.array([0, move_dist / 2, 0])
         first_segment = mnm.Line(start=polar_to_cartesian(path_start_polar, origin=self.origin),
                                  end=polar_to_cartesian(arc_start_polar, origin=self.origin))
-        turn_angle = np.power(self.angular_decay, child_node.shell) * self.arc_angle
+        # TODO(hlane) This can probably be made smarter. Start here and see if this at least works.
+        turn_angle = parent.polar_segment_width / 2.0
         arc_end_polar = arc_start_polar + np.array([turn_angle, 0, 0])
         arc_segment = mnm.Arc(radius=arc_start_polar[1],
                               arc_center=self.origin,
@@ -409,6 +407,7 @@ class CollatzViz(mnm.MovingCameraScene):
         child_node.animations = path_anim
         child_node.polar_final_angle = second_segment_end_polar[0]
         child_node.polar_final_radius = second_segment_end_polar[1]
+        child_node.polar_segment_width = turn_angle
         return child_node
 
     def generate_back_to_root_arc(self, root_node: NodeInfo, curr_node: NodeInfo) -> mnm.Animation:
@@ -473,6 +472,7 @@ class CollatzViz(mnm.MovingCameraScene):
             display_dot=root_dot,
             polar_final_angle=0.0,
             polar_final_radius=0.0,
+            polar_segment_width=self.initial_segment_angle,
             animations=mnm.FadeIn(root_circle, root_text, root_dot),
         )
         # Initial camera view.
@@ -511,6 +511,9 @@ class CollatzViz(mnm.MovingCameraScene):
             if (curr_node.value == 2):
                 shell_animations.append(self.generate_back_to_root_arc(root_node, curr_node))
             for curr_node in this_shell_list:
-                open.enqueue(self.generate_doubling_node(curr_node))
+                polar_segment_width = None
                 if (curr_node.value > 2) and (curr_node.value % 3 == 2):
-                    open.enqueue(self.generate_division_node(curr_node))
+                    branching_node = self.generate_division_node(curr_node)
+                    open.enqueue(branching_node)
+                    polar_segment_width = branching_node.polar_segment_width
+                open.enqueue(self.generate_doubling_node(curr_node, polar_segment_width=polar_segment_width))
