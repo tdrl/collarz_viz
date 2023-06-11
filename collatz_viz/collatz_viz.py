@@ -534,10 +534,9 @@ class CollatzViz(mnm.MovingCameraScene):
             root_circle.get_top()[1] + self.edge_buffer
         ]))
         self.camera.set_frame_from_bbox(animate=False)
-        shell_animations = []
         for _ in range(self.shells_to_generate):
-            this_shell_list = self.open.pop_all()
-            LOG.info(f'Working shell = {this_shell_list[0].shell}; node count = {len(this_shell_list)}')
+            nodes_to_close = self.open.pop_all()
+            LOG.info(f'Working shell = {nodes_to_close[0].shell}; node count = {len(nodes_to_close)}')
             # Note: We need to process the list of nodes to work _twice_:
             #  - In the first phase, we accumulate all of the animations to be played for this shell's
             #    nodes, then we play them. This updates their state (specifically, their location).
@@ -546,13 +545,10 @@ class CollatzViz(mnm.MovingCameraScene):
             # otherwise, their state isn't up to date and we're starting their children from their
             # _start_ location, not their _end_ location. (Net result being that everything starts from
             # the origin.)
-            for curr_node in this_shell_list:
+            for curr_node in nodes_to_close:
                 self.update_camera_from_node(curr_node)
-                shell_animations.append(curr_node.animations)
-            shell_animations.append(self.camera.set_frame_from_bbox(animate=True))
-            self.play(*shell_animations)
-            shell_animations = []
-            for curr_node in this_shell_list:
+            self.play(self.camera.set_frame_from_bbox(animate=True), *[n.animations for n in nodes_to_close])
+            for curr_node in nodes_to_close:
                 if curr_node.value not in self.closed:
                     self.closed[curr_node.value] = curr_node
                     self.open.enqueue_all(self.generate_child_nodes(curr_node))
