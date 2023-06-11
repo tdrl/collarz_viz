@@ -192,7 +192,7 @@ class CollatzViz(mnm.MovingCameraScene):
     that we can fit it all in a bounded space.
     """
 
-    def __init__(self, shells_to_generate: int = 16, **kwargs: Dict[str, Any]):
+    def __init__(self, shells_to_generate: int = 15, **kwargs: Dict[str, Any]):
         """Configure Collatz process viz.
 
         Args:
@@ -233,7 +233,7 @@ class CollatzViz(mnm.MovingCameraScene):
         # move out in "shells" (i.e., tree depth) from the origin.
         #
         # Decay in the length of radial segments with shell.
-        self.distance_decay = 0.87
+        self.distance_decay = 0.92
         # Decay of node circle radius with shell.
         self.circle_radius_decay = self.distance_decay - 0.05
         # Distance that the geometric decay of radial distance will converge to.
@@ -244,9 +244,9 @@ class CollatzViz(mnm.MovingCameraScene):
         self.edge_buffer = 5 * self.circle_radius
         aspect_ratio = self.camera.frame.aspect_ratio if self.camera.frame.aspect_ratio else (16.0 / 9.0)
         self.camera.set_content_bbox_bounds([
-            (self.origin + aspect_ratio * self.convergence_distance * mnm.LEFT)[0] - self.edge_buffer,
+            (self.origin + self.convergence_distance * mnm.LEFT)[0] - self.edge_buffer,
             self.number_line.get_bottom()[1] - 2 * self.edge_buffer,
-            (self.origin + aspect_ratio * self.convergence_distance * mnm.RIGHT)[0] + self.edge_buffer,
+            (self.origin + self.convergence_distance * mnm.RIGHT)[0] + self.edge_buffer,
             (self.origin + self.convergence_distance * mnm.UP)[1] + self.edge_buffer
         ])
         self.base_animation_run_time_seconds = 1.5
@@ -387,7 +387,8 @@ class CollatzViz(mnm.MovingCameraScene):
         first_segment = mnm.Line(start=polar_to_cartesian(path_start_polar, origin=self.origin),
                                  end=polar_to_cartesian(arc_start_polar, origin=self.origin))
         # TODO(hlane) This can probably be made smarter. Start here and see if this at least works.
-        turn_angle = parent.polar_segment_width / 2.0
+        angular_fraction = (3.0 / 4.0) if (child_val % 3 == 0) else (1.0 / 2.0)
+        turn_angle = parent.polar_segment_width * angular_fraction
         arc_end_polar = arc_start_polar + np.array([turn_angle, 0, 0])
         arc_segment = mnm.Arc(radius=arc_start_polar[1],
                               arc_center=self.origin,
