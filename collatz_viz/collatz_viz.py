@@ -441,11 +441,14 @@ class CollatzViz(mnm.MovingCameraScene):
                                         stroke_width=self.trace_stroke_width,
                                         stroke_color=self.trace_stroke_color)
         self.camera.add_to_bbox(back_arc)
-        camera_motion = self.camera.set_frame_from_bbox(animate=True)
+        # TODO(hlane): SUPER ANNOYING! How to synchronize this to the movement of the doubling
+        # node that should be taking place simultaneously? If I omit
+        #   run_time=self.base_animation_run_time_seconds
+        # here, then this runs faster than the doubling node. But if I _include_ the run_time
+        # parameter, then manim _sequences_ the two and this runs to completion before the other
+        # runs at all! Grrr.
         return mnm.AnimationGroup(mnm.Succession(mnm.Create(first_segment),
-                                                 mnm.Create(back_arc),
-                                                 run_time=self.base_animation_run_time_seconds),
-                                  camera_motion)
+                                                 mnm.Create(back_arc)))
 
     def update_camera_from_node(self, new_node: NodeInfo):
         """Expand the camera's viewport to include the contents of the new node.
