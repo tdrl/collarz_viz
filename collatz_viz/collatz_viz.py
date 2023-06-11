@@ -254,7 +254,7 @@ class CollatzViz(mnm.MovingCameraScene):
             (self.origin + self.convergence_distance * mnm.RIGHT)[0] + self.edge_buffer,
             (self.origin + self.convergence_distance * mnm.UP)[1] + self.edge_buffer
         ])
-        self.base_animation_run_time_seconds = 1.5
+        self.base_animation_run_time_seconds = 2.0
 
     def get_color_by_shell(self, shell: int) -> mnm.color.Color:
         """Generate a color scaled by radial shell from the origin.
@@ -367,9 +367,9 @@ class CollatzViz(mnm.MovingCameraScene):
                              end=np.array([here[0] + move_dist * np.cos(child_node.polar_final_angle),
                                            here[1] + move_dist * np.sin(child_node.polar_final_angle),
                                            0.0]))
-        dot_animation = child_node.display_dot.animate(run_time=self.base_animation_run_time_seconds).move_to(self.number_line.number_to_point(child_node.value) + mnm.OUT)
+        dot_animation = child_node.display_dot.animate().move_to(self.number_line.number_to_point(child_node.value) + mnm.OUT)
         child_node.animations = mnm.Succession(child_node.animations,
-                                               mnm.AnimationGroup(mnm.MoveAlongPath(child_node.display_node, move_path, run_time=self.base_animation_run_time_seconds),
+                                               mnm.AnimationGroup(mnm.MoveAlongPath(child_node.display_node, move_path),
                                                                   dot_animation))
         return child_node
 
@@ -404,14 +404,13 @@ class CollatzViz(mnm.MovingCameraScene):
         second_segment_end_polar = arc_end_polar + np.array([0, move_dist / 2, 0])
         second_segment = mnm.Line(start=polar_to_cartesian(arc_end_polar, origin=self.origin),
                                   end=polar_to_cartesian(second_segment_end_polar, origin=self.origin))
-        dot_animation = child_node.display_dot.animate(run_time=self.base_animation_run_time_seconds).move_to(self.number_line.number_to_point(child_node.value) + mnm.OUT)
+        dot_animation = child_node.display_dot.animate().move_to(self.number_line.number_to_point(child_node.value) + mnm.OUT)
         path_anim = mnm.Succession(
             child_node.animations,
             mnm.AnimationGroup(dot_animation,
                                mnm.Succession(mnm.MoveAlongPath(child_node.display_node, first_segment),
                                               mnm.MoveAlongPath(child_node.display_node, arc_segment),
-                                              mnm.MoveAlongPath(child_node.display_node, second_segment),
-                                              run_time=self.base_animation_run_time_seconds)))
+                                              mnm.MoveAlongPath(child_node.display_node, second_segment))))
         child_node.animations = path_anim
         child_node.polar_final_angle = second_segment_end_polar[0]
         child_node.polar_final_radius = second_segment_end_polar[1]
@@ -547,7 +546,8 @@ class CollatzViz(mnm.MovingCameraScene):
             # the origin.)
             for curr_node in nodes_to_close:
                 self.update_camera_from_node(curr_node)
-            self.play(self.camera.set_frame_from_bbox(animate=True), *[n.animations for n in nodes_to_close])
+            self.play(self.camera.set_frame_from_bbox(animate=True), *[n.animations for n in nodes_to_close],
+                      run_time=self.base_animation_run_time_seconds)
             for curr_node in nodes_to_close:
                 if curr_node.value not in self.closed:
                     self.closed[curr_node.value] = curr_node
