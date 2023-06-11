@@ -242,7 +242,6 @@ class CollatzViz(mnm.MovingCameraScene):
         # Set some outer bounds to the camera bounding box based on most distant
         # expected nodes.
         self.edge_buffer = 5 * self.circle_radius
-        aspect_ratio = self.camera.frame.aspect_ratio if self.camera.frame.aspect_ratio else (16.0 / 9.0)
         self.camera.set_content_bbox_bounds([
             (self.origin + self.convergence_distance * mnm.LEFT)[0] - self.edge_buffer,
             self.number_line.get_bottom()[1] - 2 * self.edge_buffer,
@@ -335,7 +334,7 @@ class CollatzViz(mnm.MovingCameraScene):
         result.move_to(mnm.DOWN * 5 * self.circle_radius - result.number_to_point(1) + mnm.IN)
         return result
 
-    def generate_doubling_node(self, parent: NodeInfo, polar_segment_width: Optional[float]) -> NodeInfo:
+    def generate_doubling_node(self, parent: NodeInfo, polar_segment_width: Optional[float] = None) -> NodeInfo:
         """Create and animate a node in the "2n" part of the reverse Collatz process.
 
         This builds a node at the "2n" branch from its parent and animates moving it
@@ -343,6 +342,8 @@ class CollatzViz(mnm.MovingCameraScene):
 
         Args:
             parent (NodeInfo): Parent node.
+            polar_segment_width (NodeInfo): Declare that this node is a member of a circular arc subtending
+                this angle (radians).
 
         Returns:
             NodeInfo: Fully populated child node, including necessary rendering, animation, and ancilliary

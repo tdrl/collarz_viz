@@ -14,7 +14,7 @@ class PseudoNodeInfo(object):
     value: int
 
 
-class TestCollatzViz(unittest.TestCase):
+class TestHelpers(unittest.TestCase):
 
     def test_monotonic_bbox_moving_camera_update_interior_bbox_single(self):
         # Default extremal bounds.
@@ -114,3 +114,58 @@ class TestCollatzViz(unittest.TestCase):
         self.assertEqual([(n.shell, n.value) for n in actual],
                          [(4, 3), (4, 17), (4, 93)])
         self.assertEqual(len(queue.queue), 4)
+
+class TestCollatzViz(unittest.TestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.viz = target.CollatzViz(0)
+        theta = mnm.PI / 4.0
+        r = 70.0
+        circle_center = target.polar_to_cartesian([theta, r, 0])
+        c = self.viz.circle_factory(5)
+        c.move_to(circle_center)
+        self.default_node = target.NodeInfo(shell=5,
+                                            value=11,
+                                            display_node=c,
+                                            display_text=mnm.Text('11'),
+                                            polar_final_angle=theta,
+                                            polar_final_radius=r,
+                                            polar_segment_width=mnm.PI / 12.0)
+
+    def test_circle_factory_decreases_circle_sizes(self):
+        c1 = self.viz.circle_factory(3)
+        c2 = self.viz.circle_factory(7)
+        self.assertGreaterEqual(1, c1.radius)
+        self.assertGreaterEqual(c1.radius, c2.radius)
+        self.assertGreater(c2.radius, 0)
+
+    def test_node_factory(self):
+        n = self.viz.node_factory(parent=self.default_node, child_val=19)
+        self.assertEqual(n.value, 19)
+        self.assertEqual(n.polar_segment_width, mnm.PI / 12.0)
+        assert_almost_equal(n.display_node.get_center(),
+                            self.default_node.display_node.get_center())
+        self.assertEqual(n.display_text.text, '19')
+
+    def test_generate_doubling_node_geometry(self):
+        n = self.viz.generate_doubling_node(parent=self.default_node)
+        self.assertEqual(n.value, 2 * self.default_node.value)
+        self.assertEqual(n.shell, self.default_node.shell + 1)
+        self.assertEqual(n.polar_final_angle, self.default_node.polar_final_angle)
+        self.assertGreater(n.polar_final_radius, self.default_node.polar_final_radius)
+ 
+    def test_generate_doubling_node_segment_declared(self):
+        n = self.viz.generate_doubling_node(parent=self.default_node, polar_segment_width=93.0)
+        self.assertEqual(n.polar_segment_width, 93.0)
+
+    def test_generate_doubling_node_segment_not_declared(self):
+        n = self.viz.generate_doubling_node(parent=self.default_node)
+        self.assertEqual(n.polar_segment_width, self.default_node.polar_segment_width)
+        
+    def test_generate_division_node(self):
+        n = self.viz.generate_division_node(parent=self.default_node)
+        self.assertEqual(n.value, int((2 * self.default_node.value - 1) / 3))
+        self.assertEqual(n.shell, self.default_node.shell + 1)
+        self.assertGreater(n.polar_final_radius, self.default_node.polar_final_radius)
+        self.assertGreater(n.polar_final_angle, self.default_node.polar_final_angle)
+        self.assertAlmostEqual(n.polar_segment_width, (n.polar_final_angle - self.default_node.polar_final_angle))
