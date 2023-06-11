@@ -418,7 +418,16 @@ class CollatzViz(mnm.MovingCameraScene):
         child_node.polar_segment_width = turn_angle
         return child_node
 
-    def generate_back_to_root_arc(self, root_node: NodeInfo, curr_node: NodeInfo) -> mnm.Animation:
+    def animate_back_arc(self, ancestor_node: NodeInfo, curr_node: NodeInfo) -> mnm.Animation:
+        """Produce an animation of an arc being drawn back from curr_node to ancestor_node.
+
+        Args:
+            curr_node (NodeInfo): Node originating the back arc.
+            ancestor_node (NodeInfo): Target of the back arc.
+
+        Returns:
+            mnm.Animation: Animation that draws the back arc.
+        """
         arc_start = curr_node.display_node.get_center() + self.distance_decay * self.step_size / 2 * mnm.RIGHT
         first_segment = mnm.Line(curr_node.display_node.get_center(),
                                  arc_start,
@@ -426,7 +435,7 @@ class CollatzViz(mnm.MovingCameraScene):
                                  stroke_width=self.trace_stroke_width,
                                  stroke_color=self.trace_stroke_color)
         back_arc = mnm.ArcBetweenPoints(arc_start,
-                                        root_node.display_node.get_center(),
+                                        ancestor_node.display_node.get_center(),
                                         angle=mnm.PI,
                                         z_index=-2,
                                         stroke_width=self.trace_stroke_width,
@@ -439,6 +448,11 @@ class CollatzViz(mnm.MovingCameraScene):
                                   camera_motion)
 
     def update_camera_from_node(self, new_node: NodeInfo):
+        """Expand the camera's viewport to include the contents of the new node.
+
+        Args:
+            new_node (NodeInfo): Object to include in the viewport.
+        """
         self.camera.add_to_bbox(new_node.display_node)
         self.camera.add_to_bbox(new_node.display_text)
         # Final position of display dot.
@@ -461,14 +475,28 @@ class CollatzViz(mnm.MovingCameraScene):
         self.camera.add_to_bbox(node_bbox)
 
     def generate_child_nodes(self, parent: NodeInfo) -> List[NodeInfo]:
+        """Generate a list of all children of the given node.
+
+        Args:
+            parent (NodeInfo): Starting point for generation.
+
+        Returns:
+            List[NodeInfo]: Both the doubling value and, when applicable, the (2n - 1) / 3
+                child nodes. SPECIAL CASE: If this detects that the child has previously been
+                generated, a child will still be returned, but its animation will contain the
+                reverse arc, leading from parent to the already generated ancestor node.
+        """
         result: List[NodeInfo] = []
         polar_segment_width = None
-        if (parent.value > 2) and (parent.value % 3 == 2):
+        if (parent.value % 3 == 2):
             branching_node = self.generate_division_node(parent)
             result.append(branching_node)
             polar_segment_width = branching_node.polar_segment_width
         result.append(self.generate_doubling_node(parent,
                                                   polar_segment_width=polar_segment_width))
+        for child in result:
+            if child.value in self.closed:
+                child.animations = self.animate_back_arc(self.closed[child.value], parent)
         return result
 
     def construct(self):
@@ -516,18 +544,12 @@ class CollatzViz(mnm.MovingCameraScene):
             # _start_ location, not their _end_ location. (Net result being that everything starts from
             # the origin.)
             for curr_node in this_shell_list:
-                if curr_node.value not in self.closed:
-                    self.closed[curr_node.value] = curr_node
                 self.update_camera_from_node(curr_node)
                 shell_animations.append(curr_node.animations)
             shell_animations.append(self.camera.set_frame_from_bbox(animate=True))
             self.play(*shell_animations)
             shell_animations = []
-            # Weird special case: If we're at node 2, we want to generate an arc back to node 1.
-            # However, we want that arc to play simultaneous with 2's child node (4). So we have to
-            # put the arc animation into the animation play list _after_ we've played 2's animation,
-            # but _before_ we open the next shell. Ugh.
-            if (curr_node.value == 2):
-                shell_animations.append(self.generate_back_to_root_arc(root_node, curr_node))
             for curr_node in this_shell_list:
-                self.open.enqueue_all(self.generate_child_nodes(curr_node))
+                if curr_node.value not in self.closed:
+                    self.closed[curr_node.value] = curr_node
+                    self.open.enqueue_all(self.generate_child_nodes(curr_node))
