@@ -17,7 +17,7 @@ To compile the visualization, use:
 
 import manim as mnm
 from dataclasses import dataclass, field
-from typing import Optional, List, Iterable, Any, Dict, Union
+from typing import Optional, List, Iterable, Any, Dict, Union, Mapping
 import numpy as np
 from numpy.linalg import norm
 from numpy.typing import ArrayLike
@@ -73,6 +73,10 @@ class PriorityNodeQueue(object):
 
     def enqueue(self, element: NodeInfo):
         heapq.heappush(self.queue, element)
+
+    def enqueue_all(self, elements: Iterable[NodeInfo]):
+        for e in elements:
+            self.enqueue(e)
 
     def pop(self) -> NodeInfo:
         return heapq.heappop(self.queue)
@@ -192,7 +196,7 @@ class CollatzViz(mnm.MovingCameraScene):
     that we can fit it all in a bounded space.
     """
 
-    def __init__(self, shells_to_generate: int = 15, **kwargs: Dict[str, Any]):
+    def __init__(self, shells_to_generate: int = 5, **kwargs: Dict[str, Any]):
         """Configure Collatz process viz.
 
         Args:
@@ -201,6 +205,8 @@ class CollatzViz(mnm.MovingCameraScene):
                 to render. Defaults to 100.
         """
         super().__init__(camera_class=MonotonicBBoxMovingCamera, **kwargs)
+        self.open: PriorityNodeQueue = PriorityNodeQueue()
+        self.closed: Mapping[int, NodeInfo] = dict()
         self.shells_to_generate = shells_to_generate
         # Starting point of the visualization.
         self.origin = mnm.ORIGIN
@@ -454,6 +460,17 @@ class CollatzViz(mnm.MovingCameraScene):
                               node_center[1] + node_radius])
         self.camera.add_to_bbox(node_bbox)
 
+    def generate_child_nodes(self, parent: NodeInfo) -> List[NodeInfo]:
+        result: List[NodeInfo] = []
+        polar_segment_width = None
+        if (parent.value > 2) and (parent.value % 3 == 2):
+            branching_node = self.generate_division_node(parent)
+            result.append(branching_node)
+            polar_segment_width = branching_node.polar_segment_width
+        result.append(self.generate_doubling_node(parent,
+                                                  polar_segment_width=polar_segment_width))
+        return result
+
     def construct(self):
         """Main 'script' for the animation.
 
@@ -477,6 +494,7 @@ class CollatzViz(mnm.MovingCameraScene):
             polar_segment_width=self.initial_segment_angle,
             animations=mnm.FadeIn(root_circle, root_text, root_dot),
         )
+        self.open.enqueue(root_node)
         # Initial camera view.
         self.camera.add_to_bbox(np.array([
             np.minimum(root_circle.get_left()[0], self.number_line.get_left()[0]) - self.edge_buffer,
@@ -485,11 +503,9 @@ class CollatzViz(mnm.MovingCameraScene):
             root_circle.get_top()[1] + self.edge_buffer
         ]))
         self.camera.set_frame_from_bbox(animate=False)
-        open = PriorityNodeQueue([root_node])
-        closed: List[NodeInfo] = []
         shell_animations = []
         for _ in range(self.shells_to_generate):
-            this_shell_list = open.pop_all()
+            this_shell_list = self.open.pop_all()
             LOG.info(f'Working shell = {this_shell_list[0].shell}; node count = {len(this_shell_list)}')
             # Note: We need to process the list of nodes to work _twice_:
             #  - In the first phase, we accumulate all of the animations to be played for this shell's
@@ -500,7 +516,8 @@ class CollatzViz(mnm.MovingCameraScene):
             # _start_ location, not their _end_ location. (Net result being that everything starts from
             # the origin.)
             for curr_node in this_shell_list:
-                closed.append(curr_node)
+                if curr_node.value not in self.closed:
+                    self.closed[curr_node.value] = curr_node
                 self.update_camera_from_node(curr_node)
                 shell_animations.append(curr_node.animations)
             shell_animations.append(self.camera.set_frame_from_bbox(animate=True))
@@ -513,9 +530,4 @@ class CollatzViz(mnm.MovingCameraScene):
             if (curr_node.value == 2):
                 shell_animations.append(self.generate_back_to_root_arc(root_node, curr_node))
             for curr_node in this_shell_list:
-                polar_segment_width = None
-                if (curr_node.value > 2) and (curr_node.value % 3 == 2):
-                    branching_node = self.generate_division_node(curr_node)
-                    open.enqueue(branching_node)
-                    polar_segment_width = branching_node.polar_segment_width
-                open.enqueue(self.generate_doubling_node(curr_node, polar_segment_width=polar_segment_width))
+                self.open.enqueue_all(self.generate_child_nodes(curr_node))
